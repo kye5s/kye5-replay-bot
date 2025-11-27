@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ParserApp")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0be08e98fb12a856c1ae8623098c87726b58ab1f")]
 [assembly: System.Reflection.AssemblyProductAttribute("ParserApp")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ParserApp")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
