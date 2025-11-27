@@ -1,3 +1,4 @@
 discord.py
 fortnite-replay-parser
 python-dotenv
+requests
