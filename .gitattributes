@@ -1,0 +1,30 @@
+# Force LF line endings for Linux servers (Railway)
+* text=auto eol=lf
+
+# Treat all binaries correctly
+*.zip binary
+*.exe binary
+*.dll binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.dat binary
+
+# Mark the ParserApp file as executable on Linux
+parser/ParserApp binary
+parser/ParserApp executable
+parser/ParserApp -text
+
+# Prevent Git from messing with replay files
+*.replay binary
+
+# Prevent Git from converting line endings in Python
+*.py text eol=lf
+
+# Prevent Git from converting line endings in C#
+*.cs text eol=lf
+*.csproj text eol=lf
+
+# Ignore CRLF warnings on Windows
+*.sh text eol=lf
