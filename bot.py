@@ -57,8 +57,7 @@ async def replay(interaction: discord.Interaction, file: discord.Attachment):
     local_path = os.path.join(temp_dir, file.filename)
     await file.save(local_path)
 
-    url = "https://kye5-replay-bot-production.up.railway.app:8080/parse-replay"
-
+    url = "https://web-production-fe567.up.railway.app/parse-replay"
 
     with open(local_path, "rb") as f:
         response = requests.post(url, files={"replay_file": f})

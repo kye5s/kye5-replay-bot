@@ -1,2 +1,2 @@
-worker: python bot.py
-web: uvicorn server:app --host 0.0.0.0 --port 8080
+web: python3 server.py
+worker: python3 bot.py
