@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FortniteReplayDecompressor\src\FortniteReplayReader\FortniteReplayReader.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+      <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
+  </ItemGroup>
+
+
+  <!-- Reference the local forked downloader of the library you already placed in the project root -->
+  <ItemGroup>
+    <ProjectReference Include="..\FortniteReplayDecompressor\FortniteReplayDecompressor.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+site_name: FortniteReplayDecompressor
+
+nav:
+- Home: index.md
+- Introduction: introduction.md
+- Overview: overview.md
+- Concepts:
+  - Receiving Properties: receiving-properties.md
+  - RPC structs and functions: rpc.md
+- Performance: performance.md
+- Credits: credits.md
+
+theme: readthedocs
+repo_url: https://github.com/Shiqan/FortniteReplayDecompressor
+markdown_extensions: [codehilite]

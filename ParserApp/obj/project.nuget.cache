@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "cMCc9iEsE7U=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\eleme\\Desktop\\fortnite-discord-bot\\ParserApp\\ParserApp.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\eleme\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\9.0.0\\microsoft.extensions.dependencyinjection.abstractions.9.0.0.nupkg.sha512",
+    "C:\\Users\\eleme\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\9.0.0\\microsoft.extensions.logging.abstractions.9.0.0.nupkg.sha512",
+    "C:\\Users\\eleme\\.nuget\\packages\\microsoft.win32.systemevents\\10.0.0\\microsoft.win32.systemevents.10.0.0.nupkg.sha512",
+    "C:\\Users\\eleme\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\eleme\\.nuget\\packages\\system.diagnostics.diagnosticsource\\9.0.0\\system.diagnostics.diagnosticsource.9.0.0.nupkg.sha512",
+    "C:\\Users\\eleme\\.nuget\\packages\\system.drawing.common\\10.0.0\\system.drawing.common.10.0.0.nupkg.sha512",
+    "C:\\Users\\eleme\\.nuget\\packages\\fortnitereplayreader\\1.0.0\\fortnitereplayreader.1.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

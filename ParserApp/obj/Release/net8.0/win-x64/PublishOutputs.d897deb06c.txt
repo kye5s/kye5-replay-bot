@@ -1,0 +1,6 @@
+C:\Users\eleme\Desktop\fortnite-discord-bot\parser_dist\ParserApp.pdb
+C:\Users\eleme\Desktop\fortnite-discord-bot\parser_dist\FortniteReplayReader.pdb
+C:\Users\eleme\Desktop\fortnite-discord-bot\parser_dist\OozSharp.pdb
+C:\Users\eleme\Desktop\fortnite-discord-bot\parser_dist\Unreal.Core.pdb
+C:\Users\eleme\Desktop\fortnite-discord-bot\parser_dist\Unreal.Encryption.pdb
+C:\Users\eleme\Desktop\fortnite-discord-bot\parser_dist\ParserApp.exe
