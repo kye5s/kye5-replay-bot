@@ -34,7 +34,8 @@ namespace ParserApp
 
                 var form = await request.ReadFormAsync();
 
-                if (!form.Files.ContainsKey("replay_file"))
+                // PATCHED LINE — correct way to check if the file exists
+                if (!form.Files.Any(f => f.Name == "replay_file"))
                     return Results.BadRequest("No replay file uploaded.");
 
                 var file = form.Files["replay_file"];

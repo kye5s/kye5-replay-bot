@@ -6,7 +6,7 @@ import json
 
 app = FastAPI()
 
-PARSER_EXE = "/app/parser/ParserApp.exe"   # <-- your actual path inside Railway
+PARSER_EXE = "/app/parser/ParserApp"   # <-- your actual path inside Railway
 
 @app.post("/parse-replay")
 async def parse_replay(replay_file: UploadFile = File(...)):
