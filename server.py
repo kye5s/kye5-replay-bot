@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+import json
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,10 +10,10 @@ from fastapi.responses import JSONResponse
 # ---- App ----
 app = FastAPI()
 
-# ---- CORS (REQUIRED for GitHub Pages) ----
+# ---- CORS ----
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # safe for this use case
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -24,14 +25,25 @@ PARSER_EXE = os.path.join(BASE_DIR, "parser", "ParserApp")
 if not os.path.exists(PARSER_EXE):
     raise RuntimeError(f"Parser executable not found at {PARSER_EXE}")
 
-# Ensure executable permissions (Render/Linux)
 os.chmod(PARSER_EXE, 0o755)
+
+# ---- In-memory leaderboard ----
+# Sorted by distance DESC
+leaderboard = []
 
 
 # ---- Health check ----
 @app.get("/")
 def root():
     return {"status": "ok"}
+
+
+# ---- Leaderboard endpoint ----
+@app.get("/leaderboard")
+def get_leaderboard():
+    return {
+        "leaderboard": leaderboard[:10]  # top 10
+    }
 
 
 # ---- Replay parsing endpoint ----
@@ -41,13 +53,10 @@ async def parse_replay(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid file type")
 
     try:
-        # Save upload to temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".replay") as tmp:
             temp_path = tmp.name
-            contents = await file.read()
-            tmp.write(contents)
+            tmp.write(await file.read())
 
-        # Run parser
         result = subprocess.run(
             [PARSER_EXE, temp_path],
             stdout=subprocess.PIPE,
@@ -56,17 +65,26 @@ async def parse_replay(file: UploadFile = File(...)):
             timeout=60,
         )
 
-        # Clean up temp file
         os.remove(temp_path)
 
         if result.returncode != 0:
             return JSONResponse(
                 status_code=500,
-                content={
-                    "error": "Parser failed",
-                    "stderr": result.stderr,
-                },
+                content={"error": "Parser failed", "stderr": result.stderr},
             )
+
+        parsed = json.loads(result.stdout)
+
+        # ---- Update leaderboard ----
+        if "furthest" in parsed:
+            entry = {
+                "distance": parsed["furthest"]["distance"],
+                "player": parsed["furthest"]["killer"],
+                "weapon": parsed["furthest"]["weapon"],
+            }
+
+            leaderboard.append(entry)
+            leaderboard.sort(key=lambda x: x["distance"], reverse=True)
 
         return {
             "success": True,
