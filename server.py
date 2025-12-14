@@ -32,6 +32,29 @@ os.chmod(PARSER_EXE, 0o755)
 leaderboard = []
 
 
+# ---- Helper: add leaderboard entry WITHOUT duplicates ----
+def add_to_leaderboard(entry):
+    global leaderboard
+
+    # Remove duplicates (same distance + player + weapon)
+    leaderboard = [
+        e for e in leaderboard
+        if not (
+            e["distance"] == entry["distance"]
+            and e["player"] == entry["player"]
+            and e["weapon"] == entry["weapon"]
+        )
+    ]
+
+    leaderboard.append(entry)
+
+    # Sort by distance DESC
+    leaderboard.sort(key=lambda x: x["distance"], reverse=True)
+
+    # Keep only top 10
+    leaderboard[:] = leaderboard[:10]
+
+
 # ---- Health check ----
 @app.get("/")
 def root():
@@ -42,7 +65,7 @@ def root():
 @app.get("/leaderboard")
 def get_leaderboard():
     return {
-        "leaderboard": leaderboard[:10]  # top 10
+        "leaderboard": leaderboard
     }
 
 
@@ -75,7 +98,7 @@ async def parse_replay(file: UploadFile = File(...)):
 
         parsed = json.loads(result.stdout)
 
-        # ---- Update leaderboard ----
+        # ---- Update leaderboard (DEDUPED) ----
         if "furthest" in parsed:
             entry = {
                 "distance": parsed["furthest"]["distance"],
@@ -83,8 +106,7 @@ async def parse_replay(file: UploadFile = File(...)):
                 "weapon": parsed["furthest"]["weapon"],
             }
 
-            leaderboard.append(entry)
-            leaderboard.sort(key=lambda x: x["distance"], reverse=True)
+            add_to_leaderboard(entry)
 
         return {
             "success": True,
