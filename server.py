@@ -2,11 +2,12 @@ import os
 import subprocess
 import tempfile
 import json
-import threading
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+from supabase import create_client, Client
 
 # ---- App ----
 app = FastAPI()
@@ -19,47 +20,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---- Supabase ----
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    raise RuntimeError("Missing Supabase environment variables")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
 # ---- Paths ----
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARSER_EXE = os.path.join(BASE_DIR, "parser", "ParserApp")
-LEADERBOARD_FILE = os.path.join(BASE_DIR, "leaderboard.json")
 
 if not os.path.exists(PARSER_EXE):
     raise RuntimeError(f"Parser executable not found at {PARSER_EXE}")
 
 os.chmod(PARSER_EXE, 0o755)
 
-# ---- Thread lock (prevents race conditions) ----
-leaderboard_lock = threading.Lock()
-
-# ---- Load leaderboard on startup ----
-def load_leaderboard():
-    if not os.path.exists(LEADERBOARD_FILE):
-        return []
-
-    try:
-        with open(LEADERBOARD_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
-
-def save_leaderboard(data):
-    with open(LEADERBOARD_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-leaderboard = load_leaderboard()
 
 # ---- Health check ----
 @app.get("/")
 def root():
     return {"status": "ok"}
 
+
 # ---- Leaderboard endpoint ----
 @app.get("/leaderboard")
 def get_leaderboard():
-    return {
-        "leaderboard": leaderboard[:10]
-    }
+    res = (
+        supabase
+        .table("leaderboard")
+        .select("distance, player, weapon")
+        .order("distance", desc=True)
+        .limit(10)
+        .execute()
+    )
+
+    return {"leaderboard": res.data}
+
 
 # ---- Replay parsing endpoint ----
 @app.post("/parse-replay")
@@ -90,7 +89,7 @@ async def parse_replay(file: UploadFile = File(...)):
 
         parsed = json.loads(result.stdout)
 
-        # ---- Update leaderboard using FINAL KILL ----
+        # ---- FINAL KILL → Leaderboard ----
         if "final" in parsed:
             final = parsed["final"]
 
@@ -100,19 +99,19 @@ async def parse_replay(file: UploadFile = File(...)):
                 "weapon": final["weapon"],
             }
 
-            with leaderboard_lock:
-                # Prevent duplicates (same distance + player + weapon)
-                exists = any(
-                    e["distance"] == entry["distance"]
-                    and e["player"] == entry["player"]
-                    and e["weapon"] == entry["weapon"]
-                    for e in leaderboard
-                )
+            # ---- Duplicate check ----
+            existing = (
+                supabase
+                .table("leaderboard")
+                .select("id")
+                .eq("distance", entry["distance"])
+                .eq("player", entry["player"])
+                .eq("weapon", entry["weapon"])
+                .execute()
+            )
 
-                if not exists:
-                    leaderboard.append(entry)
-                    leaderboard.sort(key=lambda x: x["distance"], reverse=True)
-                    save_leaderboard(leaderboard)
+            if not existing.data:
+                supabase.table("leaderboard").insert(entry).execute()
 
         return {
             "success": True,
