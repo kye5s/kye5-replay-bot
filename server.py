@@ -101,9 +101,9 @@ async def parse_replay(file: UploadFile = File(...)):
         # ---- Update leaderboard (DEDUPED) ----
         if "furthest" in parsed:
             entry = {
-                "distance": parsed["furthest"]["distance"],
-                "player": parsed["furthest"]["killer"],
-                "weapon": parsed["furthest"]["weapon"],
+                "distance": parsed["final"]["distance"],
+                "player": parsed["final"]["killer"],
+                "weapon": parsed["final"]["weapon"],
             }
 
             add_to_leaderboard(entry)
