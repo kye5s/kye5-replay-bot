@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile
 import json
+import threading
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,53 +22,44 @@ app.add_middleware(
 # ---- Paths ----
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARSER_EXE = os.path.join(BASE_DIR, "parser", "ParserApp")
+LEADERBOARD_FILE = os.path.join(BASE_DIR, "leaderboard.json")
 
 if not os.path.exists(PARSER_EXE):
     raise RuntimeError(f"Parser executable not found at {PARSER_EXE}")
 
 os.chmod(PARSER_EXE, 0o755)
 
-# ---- In-memory leaderboard ----
-# Sorted by distance DESC
-leaderboard = []
+# ---- Thread lock (prevents race conditions) ----
+leaderboard_lock = threading.Lock()
 
+# ---- Load leaderboard on startup ----
+def load_leaderboard():
+    if not os.path.exists(LEADERBOARD_FILE):
+        return []
 
-# ---- Helper: add leaderboard entry WITHOUT duplicates ----
-def add_to_leaderboard(entry):
-    global leaderboard
+    try:
+        with open(LEADERBOARD_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
 
-    # Remove duplicates (same distance + player + weapon)
-    leaderboard = [
-        e for e in leaderboard
-        if not (
-            e["distance"] == entry["distance"]
-            and e["player"] == entry["player"]
-            and e["weapon"] == entry["weapon"]
-        )
-    ]
+def save_leaderboard(data):
+    with open(LEADERBOARD_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
-    leaderboard.append(entry)
-
-    # Sort by distance DESC
-    leaderboard.sort(key=lambda x: x["distance"], reverse=True)
-
-    # Keep only top 10
-    leaderboard[:] = leaderboard[:10]
-
+leaderboard = load_leaderboard()
 
 # ---- Health check ----
 @app.get("/")
 def root():
     return {"status": "ok"}
 
-
 # ---- Leaderboard endpoint ----
 @app.get("/leaderboard")
 def get_leaderboard():
     return {
-        "leaderboard": leaderboard
+        "leaderboard": leaderboard[:10]
     }
-
 
 # ---- Replay parsing endpoint ----
 @app.post("/parse-replay")
@@ -98,15 +90,29 @@ async def parse_replay(file: UploadFile = File(...)):
 
         parsed = json.loads(result.stdout)
 
-        # ---- Update leaderboard (DEDUPED) ----
-        if "furthest" in parsed:
+        # ---- Update leaderboard using FINAL KILL ----
+        if "final" in parsed:
+            final = parsed["final"]
+
             entry = {
-                "distance": parsed["final"]["distance"],
-                "player": parsed["final"]["killer"],
-                "weapon": parsed["final"]["weapon"],
+                "distance": final["distance"],
+                "player": final["killer"],
+                "weapon": final["weapon"],
             }
 
-            add_to_leaderboard(entry)
+            with leaderboard_lock:
+                # Prevent duplicates (same distance + player + weapon)
+                exists = any(
+                    e["distance"] == entry["distance"]
+                    and e["player"] == entry["player"]
+                    and e["weapon"] == entry["weapon"]
+                    for e in leaderboard
+                )
+
+                if not exists:
+                    leaderboard.append(entry)
+                    leaderboard.sort(key=lambda x: x["distance"], reverse=True)
+                    save_leaderboard(leaderboard)
 
         return {
             "success": True,
