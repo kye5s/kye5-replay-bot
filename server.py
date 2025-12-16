@@ -53,7 +53,6 @@ def get_leaderboard():
         .table("leaderboard")
         .select("distance, player, weapon")
         .order("distance", desc=True)
-        .limit(10)
         .execute()
     )
 
