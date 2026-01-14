@@ -28,7 +28,6 @@ namespace ParserApp
         }
         // ---------------------------------------------------------
 
-        // Weapon name mapping from DeathTags
         private static string IdentifyWeapon(IEnumerable<string> tags)
         {
             if (tags == null) return "Unknown";
@@ -36,29 +35,22 @@ namespace ParserApp
 
             if (t.Any(x => x.Contains("weapon.ranged.sniper.heavy", StringComparison.OrdinalIgnoreCase)))
                 return "Heavy Sniper";
-
             if (t.Any(x => x.Contains("weapon.ranged.sniper.bolt", StringComparison.OrdinalIgnoreCase)))
                 return "Bolt-Action Sniper";
-
             if (t.Any(x => x.Contains("weapon.ranged.sniper.hunting", StringComparison.OrdinalIgnoreCase)))
                 return "Hunting Rifle";
-
             if (t.Any(x => x.Contains("Weapon.Ranged.Shotgun.Pump", StringComparison.OrdinalIgnoreCase)))
                 return "Pump Shotgun";
-
             if (t.Any(x => x.Contains("Item.Weapon.Ranged.SMG.Suppressed", StringComparison.OrdinalIgnoreCase)))
                 return "Suppressed SMG";
-
             if (t.Any(x => x.Contains("Weapon.Ranged.SMG", StringComparison.OrdinalIgnoreCase)))
                 return "SMG";
-
             if (t.Any(x => x.Contains("weapon.ranged.assault.standard", StringComparison.OrdinalIgnoreCase)))
                 return "Assault Rifle";
 
             return "Unknown";
         }
 
-        // Rarity extraction
         private static string IdentifyRarity(IEnumerable<string> tags)
         {
             if (tags == null) return "Unknown";
@@ -112,92 +104,83 @@ namespace ParserApp
 
             foreach (var p in players)
             {
-                if (p == null)
-                    continue;
-
-                string id = p.PlayerId ?? "";
-                if (id == "")
-                    continue;
+                if (p?.PlayerId == null) continue;
 
                 string display =
                     p.PlayerNameCustomOverride ??
                     p.PlayerName ??
                     p.StreamerModeName ??
-                    id;
+                    p.PlayerId;
 
-                map[id] = display;
+                map[p.PlayerId] = display;
             }
 
             return map;
         }
 
         // -------------------------------------------------------------
-        // FUNCTION THAT PARSES REPLAY (your original CLI logic)
+        // PARSER
         // -------------------------------------------------------------
         public static string ParseReplayFile(string replayPath)
         {
-            WriteDebug("=== WEB PARSE RUN ===");
-            WriteDebug("Replay path: " + replayPath);
-
             if (!File.Exists(replayPath))
-            {
-                WriteDebug("Replay file does NOT exist!");
                 return "{}";
-            }
 
             try
             {
                 var reader = new ReplayReader();
                 FortniteReplay replay = reader.ReadReplay(replayPath);
-                WriteDebug("Replay loaded successfully.");
 
                 var nameMap = BuildNameMap(replay.PlayerData ?? Enumerable.Empty<PlayerData>());
                 var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
 
-                if (killfeed.Count == 0)
-                {
-                    WriteDebug("No killfeed.");
-                    return "{}";
-                }
+                var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity)>();
 
-                var merged = new List<(KillFeedEntry kf, double meters, string weapon, string rarity)>();
-
-                for (int i = 0; i < killfeed.Count; i++)
+                foreach (var kf in killfeed)
                 {
-                    var kf = killfeed[i];
                     if (kf == null) continue;
 
-                    string killerId = kf.FinisherOrDownerName ?? "";
-                    string victimId = kf.PlayerName ?? "";
-                    if (killerId == "" || victimId == "") continue;
+                    string killerId = kf.FinisherOrDownerName;
+                    string victimId = kf.PlayerName;
+
+                    if (string.IsNullOrEmpty(killerId) || string.IsNullOrEmpty(victimId))
+                        continue;
+
+                    if (killerId == victimId)
+                        continue; // self elim
+
+                    var killer = FindPlayer(killerId, replay.PlayerData);
+                    var victim = FindPlayer(victimId, replay.PlayerData);
+
+                    if (killer == null || victim == null)
+                        continue;
+
+                    if (killer.TeamIndex == victim.TeamIndex)
+                        continue; // team kill
+
+                    if (kf.Distance == null || kf.Distance <= 0)
+                        continue;
+
+                    double meters = Math.Round(kf.Distance.Value / 100.0, 2);
+
+                    if (meters < 0.1)
+                        continue;
 
                     var tags = kf.DeathTags ?? new List<string>();
 
-                    string weapon = IdentifyWeapon(tags);
-                    string rarity = IdentifyRarity(tags);
-
-                    double distance = Math.Round((kf.Distance ?? 0) / 100.0, 2);
-
-                    merged.Add((kf, distance, weapon, rarity));
+                    validKills.Add((
+                        kf,
+                        meters,
+                        IdentifyWeapon(tags),
+                        IdentifyRarity(tags)
+                    ));
                 }
 
-                if (merged.Count == 0) return "{}";
+                if (validKills.Count == 0)
+                    return "{}";
 
-                var furthest = merged.OrderByDescending(x => x.meters).First();
-
-                bool IsRealKill((KillFeedEntry kf, double meters, string weapon, string rarity) x)
-                {
-                    string killer = x.kf.FinisherOrDownerName ?? "";
-                    string victim = x.kf.PlayerName ?? "";
-                    if (killer == "" || victim == "") return false;
-                    if (killer == victim) return false;
-                    if (x.meters < 0.1) return false;
-                    return true;
-                }
-
-                var final = merged.LastOrDefault(IsRealKill);
-                if ((object)final.kf == null)
-                    final = merged.Last();
+                var furthest = validKills.OrderByDescending(x => x.meters).First();
+                var final = validKills.Last();
 
                 string GetName(string id) =>
                     nameMap.TryGetValue(id, out var n) ? n : id;
@@ -233,81 +216,51 @@ namespace ParserApp
 
                 return output.ToString(Formatting.Indented);
             }
-            catch (Exception ex)
+            catch
             {
-                WriteDebug("EXCEPTION: " + ex);
                 return "{}";
             }
         }
 
-        // -------------------------------------------------------------
-        // MAIN ENTRY — ADDED SERVER MODE HERE
-        // -------------------------------------------------------------
         static void Main(string[] args)
         {
-            // If running as server: dotnet ParserApp.dll --server
             if (args.Length > 0 && args[0] == "--server")
             {
                 StartWebServer();
                 return;
             }
 
-            // ORIGINAL MODE (DO NOT TOUCH)
             if (args.Length == 0)
             {
                 Console.WriteLine("{}");
                 return;
             }
 
-            string result = ParseReplayFile(args[0]);
-            Console.WriteLine(result);
+            Console.WriteLine(ParseReplayFile(args[0]));
         }
 
-        // -------------------------------------------------------------
-        // WEB SERVER
-        // -------------------------------------------------------------
         public static void StartWebServer()
         {
             var builder = WebApplication.CreateBuilder();
             builder.Services.AddRouting();
-
             var app = builder.Build();
 
-            // fixed: use ReadFormAsync() and find the uploaded file reliably
             app.MapPost("/parse-replay", async (HttpRequest req) =>
             {
-                try
-                {
-                    var form = await req.ReadFormAsync();
-                    // try common names or fallback to any .replay file
-                    var file = form.Files.FirstOrDefault(f =>
-                        string.Equals(f.Name, "replay_file", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(f.Name, "file", StringComparison.OrdinalIgnoreCase)
-                        || (f.FileName != null && f.FileName.EndsWith(".replay", StringComparison.OrdinalIgnoreCase))
-                    );
+                var form = await req.ReadFormAsync();
+                var file = form.Files.FirstOrDefault(f => f.FileName.EndsWith(".replay"));
 
-                    if (file == null)
-                    {
-                        return Results.BadRequest("No replay_file uploaded.");
-                    }
+                if (file == null)
+                    return Results.BadRequest("No replay file.");
 
-                    string tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".replay");
+                string tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".replay");
+                using (var stream = File.Create(tempPath))
+                    await file.CopyToAsync(stream);
 
-                    using (var stream = File.Create(tempPath))
-                        await file.CopyToAsync(stream);
+                string json = ParseReplayFile(tempPath);
+                try { File.Delete(tempPath); } catch { }
 
-                    string json = ParseReplayFile(tempPath);
-
-                    // optional: delete temp file after parsing
-                    try { File.Delete(tempPath); } catch { }
-
-                    return Results.Content(json, "application/json");
-                }
-                catch (Exception ex)
-                {
-                    WriteDebug("Web handler error: " + ex);
-                    return Results.StatusCode(500);
-                }
+                return Results.Content(json, "application/json");
             });
 
             app.Run("http://0.0.0.0:8080");
