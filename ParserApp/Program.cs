@@ -28,6 +28,7 @@ namespace ParserApp
         }
         // ---------------------------------------------------------
 
+        // Weapon name mapping from DeathTags
         private static string IdentifyWeapon(IEnumerable<string> tags)
         {
             if (tags == null) return "Unknown";
@@ -104,7 +105,8 @@ namespace ParserApp
 
             foreach (var p in players)
             {
-                if (p?.PlayerId == null) continue;
+                if (p == null) continue;
+                if (string.IsNullOrEmpty(p.PlayerId)) continue;
 
                 string display =
                     p.PlayerNameCustomOverride ??
@@ -119,117 +121,90 @@ namespace ParserApp
         }
 
         // -------------------------------------------------------------
-        // PARSER
+        // PARSE REPLAY
         // -------------------------------------------------------------
         public static string ParseReplayFile(string replayPath)
         {
-            if (!File.Exists(replayPath))
+            WriteDebug("=== WEB PARSE RUN ===");
+
+            var reader = new ReplayReader();
+            FortniteReplay replay = reader.ReadReplay(replayPath);
+
+            var players = replay.PlayerData ?? Enumerable.Empty<PlayerData>();
+            var nameMap = BuildNameMap(players);
+            var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
+
+            var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity)>();
+
+            foreach (var kf in killfeed)
+            {
+                if (kf == null) continue;
+
+                var killer = FindPlayer(kf.FinisherOrDownerName, players);
+                var victim = FindPlayer(kf.PlayerName, players);
+
+                // ❌ invalid references
+                if (killer == null || victim == null) continue;
+
+                // ❌ self elimination
+                if (killer.PlayerId == victim.PlayerId) continue;
+
+                // ❌ teammate elimination
+                if (killer.TeamIndex.HasValue &&
+                    victim.TeamIndex.HasValue &&
+                    killer.TeamIndex == victim.TeamIndex)
+                    continue;
+
+                double meters = Math.Round((kf.Distance ?? 0) / 100.0, 2);
+                if (meters < 0.1) continue;
+
+                var tags = kf.DeathTags ?? new List<string>();
+                validKills.Add((kf, meters, IdentifyWeapon(tags), IdentifyRarity(tags)));
+            }
+
+            if (!validKills.Any())
                 return "{}";
 
-            try
+            var furthest = validKills.OrderByDescending(x => x.meters).First();
+            var final = validKills.Last();
+
+            string GetName(string id) =>
+                nameMap.TryGetValue(id, out var n) ? n : id;
+
+            PlayerData fk = FindPlayer(furthest.kf.FinisherOrDownerName, players);
+            PlayerData fv = FindPlayer(furthest.kf.PlayerName, players);
+            PlayerData lk = FindPlayer(final.kf.FinisherOrDownerName, players);
+            PlayerData lv = FindPlayer(final.kf.PlayerName, players);
+
+            JObject output = new JObject
             {
-                var reader = new ReplayReader();
-                FortniteReplay replay = reader.ReadReplay(replayPath);
-
-                var nameMap = BuildNameMap(replay.PlayerData ?? Enumerable.Empty<PlayerData>());
-                var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
-
-                var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity)>();
-
-                foreach (var kf in killfeed)
+                ["furthest"] = new JObject
                 {
-                    if (kf == null) continue;
-
-                    string killerId = kf.FinisherOrDownerName;
-                    string victimId = kf.PlayerName;
-
-                    if (string.IsNullOrEmpty(killerId) || string.IsNullOrEmpty(victimId))
-                        continue;
-
-                    if (killerId == victimId)
-                        continue; // self elim
-
-                    var killer = FindPlayer(killerId, replay.PlayerData);
-                    var victim = FindPlayer(victimId, replay.PlayerData);
-
-                    if (killer == null || victim == null)
-                        continue;
-
-                    if (killer.TeamIndex == victim.TeamIndex)
-                        continue; // team kill
-
-                    if (kf.Distance == null || kf.Distance <= 0)
-                        continue;
-
-                    double meters = Math.Round(kf.Distance.Value / 100.0, 2);
-
-                    if (meters < 0.1)
-                        continue;
-
-                    var tags = kf.DeathTags ?? new List<string>();
-
-                    validKills.Add((
-                        kf,
-                        meters,
-                        IdentifyWeapon(tags),
-                        IdentifyRarity(tags)
-                    ));
+                    ["distance"] = furthest.meters,
+                    ["killer"] = GetName(furthest.kf.FinisherOrDownerName),
+                    ["killer_platform"] = MapPlatform(fk?.Platform),
+                    ["victim"] = GetName(furthest.kf.PlayerName),
+                    ["victim_platform"] = MapPlatform(fv?.Platform),
+                    ["weapon"] = furthest.weapon,
+                    ["rarity"] = furthest.rarity
+                },
+                ["final"] = new JObject
+                {
+                    ["distance"] = final.meters,
+                    ["killer"] = GetName(final.kf.FinisherOrDownerName),
+                    ["killer_platform"] = MapPlatform(lk?.Platform),
+                    ["victim"] = GetName(final.kf.PlayerName),
+                    ["victim_platform"] = MapPlatform(lv?.Platform),
+                    ["weapon"] = final.weapon,
+                    ["rarity"] = final.rarity
                 }
+            };
 
-                if (validKills.Count == 0)
-                    return "{}";
-
-                var furthest = validKills.OrderByDescending(x => x.meters).First();
-                var final = validKills.Last();
-
-                string GetName(string id) =>
-                    nameMap.TryGetValue(id, out var n) ? n : id;
-
-                PlayerData fk = FindPlayer(furthest.kf.FinisherOrDownerName, replay.PlayerData);
-                PlayerData fv = FindPlayer(furthest.kf.PlayerName, replay.PlayerData);
-                PlayerData lk = FindPlayer(final.kf.FinisherOrDownerName, replay.PlayerData);
-                PlayerData lv = FindPlayer(final.kf.PlayerName, replay.PlayerData);
-
-                JObject output = new JObject
-                {
-                    ["furthest"] = new JObject
-                    {
-                        ["distance"] = furthest.meters,
-                        ["killer"] = GetName(furthest.kf.FinisherOrDownerName),
-                        ["killer_platform"] = MapPlatform(fk?.Platform),
-                        ["victim"] = GetName(furthest.kf.PlayerName),
-                        ["victim_platform"] = MapPlatform(fv?.Platform),
-                        ["weapon"] = furthest.weapon,
-                        ["rarity"] = furthest.rarity
-                    },
-                    ["final"] = new JObject
-                    {
-                        ["distance"] = final.meters,
-                        ["killer"] = GetName(final.kf.FinisherOrDownerName),
-                        ["killer_platform"] = MapPlatform(lk?.Platform),
-                        ["victim"] = GetName(final.kf.PlayerName),
-                        ["victim_platform"] = MapPlatform(lv?.Platform),
-                        ["weapon"] = final.weapon,
-                        ["rarity"] = final.rarity
-                    }
-                };
-
-                return output.ToString(Formatting.Indented);
-            }
-            catch
-            {
-                return "{}";
-            }
+            return output.ToString(Formatting.Indented);
         }
 
         static void Main(string[] args)
         {
-            if (args.Length > 0 && args[0] == "--server")
-            {
-                StartWebServer();
-                return;
-            }
-
             if (args.Length == 0)
             {
                 Console.WriteLine("{}");
@@ -237,33 +212,6 @@ namespace ParserApp
             }
 
             Console.WriteLine(ParseReplayFile(args[0]));
-        }
-
-        public static void StartWebServer()
-        {
-            var builder = WebApplication.CreateBuilder();
-            builder.Services.AddRouting();
-            var app = builder.Build();
-
-            app.MapPost("/parse-replay", async (HttpRequest req) =>
-            {
-                var form = await req.ReadFormAsync();
-                var file = form.Files.FirstOrDefault(f => f.FileName.EndsWith(".replay"));
-
-                if (file == null)
-                    return Results.BadRequest("No replay file.");
-
-                string tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".replay");
-                using (var stream = File.Create(tempPath))
-                    await file.CopyToAsync(stream);
-
-                string json = ParseReplayFile(tempPath);
-                try { File.Delete(tempPath); } catch { }
-
-                return Results.Content(json, "application/json");
-            });
-
-            app.Run("http://0.0.0.0:8080");
         }
     }
 }
