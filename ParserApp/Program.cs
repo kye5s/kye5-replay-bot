@@ -6,16 +6,11 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using FortniteReplayReader;
 using FortniteReplayReader.Models;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace ParserApp
 {
     class Program
     {
-        // ---------------- DEBUG FILE OUTPUT ---------------------
         private static void WriteDebug(string text)
         {
             try
@@ -26,9 +21,7 @@ namespace ParserApp
             }
             catch { }
         }
-        // ---------------------------------------------------------
 
-        // Weapon name mapping from DeathTags
         private static string IdentifyWeapon(IEnumerable<string> tags)
         {
             if (tags == null) return "Unknown";
@@ -93,10 +86,26 @@ namespace ParserApp
             };
         }
 
-        private static PlayerData FindPlayer(string id, IEnumerable<PlayerData> players)
+        // ✅ Match by display name, not PlayerId
+        private static PlayerData FindPlayerByName(string name, IEnumerable<PlayerData> players)
         {
-            if (id == null) return null;
-            return players?.FirstOrDefault(p => p.PlayerId == id);
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            return players?.FirstOrDefault(p =>
+                string.Equals(p.PlayerNameCustomOverride, name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.PlayerName, name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.StreamerModeName, name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.PlayerId, name, StringComparison.OrdinalIgnoreCase)
+            );
+        }
+
+        // ✅ Returns true if the name looks like a raw UUID / account ID (no real display name)
+        private static bool IsRawId(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return true;
+            // Fortnite account IDs are 32-char hex strings
+            if (name.Length == 32 && name.All(c => "0123456789ABCDEFabcdef".Contains(c)))
+                return true;
+            return false;
         }
 
         private static Dictionary<string, string> BuildNameMap(IEnumerable<PlayerData> players)
@@ -120,9 +129,6 @@ namespace ParserApp
             return map;
         }
 
-        // -------------------------------------------------------------
-        // PARSE REPLAY
-        // -------------------------------------------------------------
         public static string ParseReplayFile(string replayPath)
         {
             WriteDebug("=== WEB PARSE RUN ===");
@@ -134,32 +140,39 @@ namespace ParserApp
             var nameMap = BuildNameMap(players);
             var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
 
-            var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity)>();
+            var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity, PlayerData killer, PlayerData victim)>();
 
             foreach (var kf in killfeed)
             {
                 if (kf == null) continue;
 
-                var killer = FindPlayer(kf.FinisherOrDownerName, players);
-                var victim = FindPlayer(kf.PlayerName, players);
+                string killerName = kf.FinisherOrDownerName;
+                string victimName = kf.PlayerName;
 
-                // ❌ invalid references
-                if (killer == null || victim == null) continue;
+                // ❌ Reject raw UUIDs / empty names — these are unresolved or environmental kills
+                if (IsRawId(killerName)) continue;
+                if (IsRawId(victimName)) continue;
 
-                // ❌ self elimination
-                if (killer.PlayerId == victim.PlayerId) continue;
+                // ❌ Self-elimination
+                if (string.Equals(killerName, victimName, StringComparison.OrdinalIgnoreCase)) continue;
 
-                // ❌ teammate elimination
-                if (killer.TeamIndex.HasValue &&
+                var killer = FindPlayerByName(killerName, players);
+                var victim = FindPlayerByName(victimName, players);
+
+                // ❌ Team elimination (only if we can resolve both players)
+                if (killer != null && victim != null &&
+                    killer.TeamIndex.HasValue &&
                     victim.TeamIndex.HasValue &&
                     killer.TeamIndex == victim.TeamIndex)
                     continue;
 
                 double meters = Math.Round((kf.Distance ?? 0) / 100.0, 2);
+
+                // ❌ Zero or negative distance — storm/fall/environment kill
                 if (meters < 0.1) continue;
 
                 var tags = kf.DeathTags ?? new List<string>();
-                validKills.Add((kf, meters, IdentifyWeapon(tags), IdentifyRarity(tags)));
+                validKills.Add((kf, meters, IdentifyWeapon(tags), IdentifyRarity(tags), killer, victim));
             }
 
             if (!validKills.Any())
@@ -168,33 +181,25 @@ namespace ParserApp
             var furthest = validKills.OrderByDescending(x => x.meters).First();
             var final = validKills.Last();
 
-            string GetName(string id) =>
-                nameMap.TryGetValue(id, out var n) ? n : id;
-
-            PlayerData fk = FindPlayer(furthest.kf.FinisherOrDownerName, players);
-            PlayerData fv = FindPlayer(furthest.kf.PlayerName, players);
-            PlayerData lk = FindPlayer(final.kf.FinisherOrDownerName, players);
-            PlayerData lv = FindPlayer(final.kf.PlayerName, players);
-
-            JObject output = new JObject
+            var output = new JObject
             {
                 ["furthest"] = new JObject
                 {
                     ["distance"] = furthest.meters,
-                    ["killer"] = GetName(furthest.kf.FinisherOrDownerName),
-                    ["killer_platform"] = MapPlatform(fk?.Platform),
-                    ["victim"] = GetName(furthest.kf.PlayerName),
-                    ["victim_platform"] = MapPlatform(fv?.Platform),
+                    ["killer"] = furthest.kf.FinisherOrDownerName,
+                    ["killer_platform"] = MapPlatform(furthest.killer?.Platform),
+                    ["victim"] = furthest.kf.PlayerName,
+                    ["victim_platform"] = MapPlatform(furthest.victim?.Platform),
                     ["weapon"] = furthest.weapon,
                     ["rarity"] = furthest.rarity
                 },
                 ["final"] = new JObject
                 {
                     ["distance"] = final.meters,
-                    ["killer"] = GetName(final.kf.FinisherOrDownerName),
-                    ["killer_platform"] = MapPlatform(lk?.Platform),
-                    ["victim"] = GetName(final.kf.PlayerName),
-                    ["victim_platform"] = MapPlatform(lv?.Platform),
+                    ["killer"] = final.kf.FinisherOrDownerName,
+                    ["killer_platform"] = MapPlatform(final.killer?.Platform),
+                    ["victim"] = final.kf.PlayerName,
+                    ["victim_platform"] = MapPlatform(final.victim?.Platform),
                     ["weapon"] = final.weapon,
                     ["rarity"] = final.rarity
                 }
