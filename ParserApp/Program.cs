@@ -86,7 +86,6 @@ namespace ParserApp
             };
         }
 
-        // ✅ Match by display name, not PlayerId
         private static PlayerData FindPlayerByName(string name, IEnumerable<PlayerData> players)
         {
             if (string.IsNullOrWhiteSpace(name)) return null;
@@ -98,11 +97,9 @@ namespace ParserApp
             );
         }
 
-        // ✅ Returns true if the name looks like a raw UUID / account ID (no real display name)
         private static bool IsRawId(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return true;
-            // Fortnite account IDs are 32-char hex strings
             if (name.Length == 32 && name.All(c => "0123456789ABCDEFabcdef".Contains(c)))
                 return true;
             return false;
@@ -131,6 +128,14 @@ namespace ParserApp
 
         public static string ParseReplayFile(string replayPath)
         {
+            // Clear debug file at start of each parse
+            try
+            {
+                string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+                File.WriteAllText(Path.Combine(exeDir, "debug_dump.txt"), "");
+            }
+            catch { }
+
             WriteDebug("=== WEB PARSE RUN ===");
 
             var reader = new ReplayReader();
@@ -139,6 +144,13 @@ namespace ParserApp
             var players = replay.PlayerData ?? Enumerable.Empty<PlayerData>();
             var nameMap = BuildNameMap(players);
             var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
+
+            // DEBUG - log every raw kill entry
+            foreach (var kf in killfeed)
+            {
+                var tags = kf?.DeathTags != null ? string.Join(", ", kf.DeathTags) : "null";
+                WriteDebug($"KILL | killer={kf?.FinisherOrDownerName} | victim={kf?.PlayerName} | dist={kf?.Distance} | tags={tags}");
+            }
 
             var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity, PlayerData killer, PlayerData victim)>();
 
@@ -149,17 +161,14 @@ namespace ParserApp
                 string killerName = kf.FinisherOrDownerName;
                 string victimName = kf.PlayerName;
 
-                // ❌ Reject raw UUIDs / empty names — these are unresolved or environmental kills
                 if (IsRawId(killerName)) continue;
                 if (IsRawId(victimName)) continue;
 
-                // ❌ Self-elimination
                 if (string.Equals(killerName, victimName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 var killer = FindPlayerByName(killerName, players);
                 var victim = FindPlayerByName(victimName, players);
 
-                // ❌ Team elimination (only if we can resolve both players)
                 if (killer != null && victim != null &&
                     killer.TeamIndex.HasValue &&
                     victim.TeamIndex.HasValue &&
@@ -167,8 +176,6 @@ namespace ParserApp
                     continue;
 
                 double meters = Math.Round((kf.Distance ?? 0) / 100.0, 2);
-
-                // ❌ Zero or negative distance — storm/fall/environment kill
                 if (meters < 0.1) continue;
 
                 var tags = kf.DeathTags ?? new List<string>();
