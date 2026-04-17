@@ -2,11 +2,9 @@ import os
 import subprocess
 import tempfile
 import json
-
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
 from supabase import create_client, Client
 
 # ---- App ----
@@ -23,27 +21,21 @@ app.add_middleware(
 # ---- Supabase ----
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
     raise RuntimeError("Missing Supabase environment variables")
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 # ---- Paths ----
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARSER_EXE = os.path.join(BASE_DIR, "parser", "ParserApp")
-
 if not os.path.exists(PARSER_EXE):
     raise RuntimeError(f"Parser executable not found at {PARSER_EXE}")
-
 os.chmod(PARSER_EXE, 0o755)
-
 
 # ---- Health check ----
 @app.get("/")
 def root():
     return {"status": "ok"}
-
 
 # ---- Leaderboard endpoint ----
 @app.get("/leaderboard")
@@ -55,9 +47,7 @@ def get_leaderboard():
         .order("distance", desc=True)
         .execute()
     )
-
     return {"leaderboard": res.data}
-
 
 # ---- Replay parsing endpoint ----
 @app.post("/parse-replay")
@@ -77,8 +67,15 @@ async def parse_replay(file: UploadFile = File(...)):
             text=True,
             timeout=60,
         )
+
         print("PARSER OUTPUT:", result.stdout, flush=True)
         print("PARSER STDERR:", result.stderr, flush=True)
+
+        # ---- Print debug dump from C# parser ----
+        debug_path = os.path.join(os.path.dirname(PARSER_EXE), "debug_dump.txt")
+        if os.path.exists(debug_path):
+            with open(debug_path, "r") as f:
+                print("DEBUG DUMP:", f.read(), flush=True)
 
         os.remove(temp_path)
 
@@ -93,7 +90,6 @@ async def parse_replay(file: UploadFile = File(...)):
         # ---- FINAL KILL → Leaderboard ----
         if "final" in parsed:
             final = parsed["final"]
-
             entry = {
                 "distance": final["distance"],
                 "player": final["killer"],
@@ -121,6 +117,5 @@ async def parse_replay(file: UploadFile = File(...)):
 
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Parser timed out")
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
