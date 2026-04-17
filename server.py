@@ -77,6 +77,8 @@ async def parse_replay(file: UploadFile = File(...)):
             text=True,
             timeout=60,
         )
+        print("PARSER OUTPUT:", result.stdout, flush=True)
+        print("PARSER STDERR:", result.stderr, flush=True)
 
         os.remove(temp_path)
 
