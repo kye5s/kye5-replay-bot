@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: kye5-replay-bot
+    runtime: python
+    buildCommand: |
+      pip install -r requirements.txt
+      curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 9.0
+      export PATH="$HOME/.dotnet:$PATH"
+      cd ParserApp && dotnet publish -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o ../parser/
+    startCommand: uvicorn server:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
