@@ -128,7 +128,6 @@ namespace ParserApp
 
         public static string ParseReplayFile(string replayPath)
         {
-            // Clear debug file at start of each parse
             try
             {
                 string exeDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -145,11 +144,9 @@ namespace ParserApp
             var nameMap = BuildNameMap(players);
             var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
 
-            // DEBUG - killfeed and player counts
             WriteDebug($"Killfeed count: {killfeed.Count}");
             WriteDebug($"Player count: {players.Count()}");
 
-            // DEBUG - log every raw kill entry
             foreach (var kf in killfeed)
             {
                 try
@@ -163,7 +160,7 @@ namespace ParserApp
                 }
             }
 
-            var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity, PlayerData killer, PlayerData victim)>();
+            var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity, PlayerData killer, PlayerData victim, string resolvedKiller, string resolvedVictim)>();
 
             foreach (var kf in killfeed)
             {
@@ -172,14 +169,23 @@ namespace ParserApp
                 string killerName = kf.FinisherOrDownerName;
                 string victimName = kf.PlayerName;
 
+                // Try to resolve UUID to display name via name map
+                if (!string.IsNullOrWhiteSpace(killerName) && nameMap.ContainsKey(killerName))
+                    killerName = nameMap[killerName];
+                if (!string.IsNullOrWhiteSpace(victimName) && nameMap.ContainsKey(victimName))
+                    victimName = nameMap[victimName];
+
+                // ❌ Reject still-unresolved raw UUIDs / empty names
                 if (IsRawId(killerName)) continue;
                 if (IsRawId(victimName)) continue;
 
+                // ❌ Self-elimination
                 if (string.Equals(killerName, victimName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 var killer = FindPlayerByName(killerName, players);
                 var victim = FindPlayerByName(victimName, players);
 
+                // ❌ Team elimination
                 if (killer != null && victim != null &&
                     killer.TeamIndex.HasValue &&
                     victim.TeamIndex.HasValue &&
@@ -190,7 +196,7 @@ namespace ParserApp
                 if (meters < 0.1) continue;
 
                 var tags = kf.DeathTags ?? new List<string>();
-                validKills.Add((kf, meters, IdentifyWeapon(tags), IdentifyRarity(tags), killer, victim));
+                validKills.Add((kf, meters, IdentifyWeapon(tags), IdentifyRarity(tags), killer, victim, killerName, victimName));
             }
 
             if (!validKills.Any())
@@ -204,9 +210,9 @@ namespace ParserApp
                 ["furthest"] = new JObject
                 {
                     ["distance"] = furthest.meters,
-                    ["killer"] = furthest.kf.FinisherOrDownerName,
+                    ["killer"] = furthest.resolvedKiller,
                     ["killer_platform"] = MapPlatform(furthest.killer?.Platform),
-                    ["victim"] = furthest.kf.PlayerName,
+                    ["victim"] = furthest.resolvedVictim,
                     ["victim_platform"] = MapPlatform(furthest.victim?.Platform),
                     ["weapon"] = furthest.weapon,
                     ["rarity"] = furthest.rarity
@@ -214,9 +220,9 @@ namespace ParserApp
                 ["final"] = new JObject
                 {
                     ["distance"] = final.meters,
-                    ["killer"] = final.kf.FinisherOrDownerName,
+                    ["killer"] = final.resolvedKiller,
                     ["killer_platform"] = MapPlatform(final.killer?.Platform),
-                    ["victim"] = final.kf.PlayerName,
+                    ["victim"] = final.resolvedVictim,
                     ["victim_platform"] = MapPlatform(final.victim?.Platform),
                     ["weapon"] = final.weapon,
                     ["rarity"] = final.rarity
