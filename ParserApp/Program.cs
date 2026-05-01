@@ -145,11 +145,22 @@ namespace ParserApp
             var nameMap = BuildNameMap(players);
             var killfeed = replay.KillFeed?.ToList() ?? new List<KillFeedEntry>();
 
+            // DEBUG - killfeed and player counts
+            WriteDebug($"Killfeed count: {killfeed.Count}");
+            WriteDebug($"Player count: {players.Count()}");
+
             // DEBUG - log every raw kill entry
             foreach (var kf in killfeed)
             {
-                var tags = kf?.DeathTags != null ? string.Join(", ", kf.DeathTags) : "null";
-                WriteDebug($"KILL | killer={kf?.FinisherOrDownerName} | victim={kf?.PlayerName} | dist={kf?.Distance} | tags={tags}");
+                try
+                {
+                    var tags = kf?.DeathTags != null ? string.Join(", ", kf.DeathTags) : "null";
+                    WriteDebug($"KILL | killer={kf?.FinisherOrDownerName} | victim={kf?.PlayerName} | dist={kf?.Distance} | tags={tags}");
+                }
+                catch (Exception ex)
+                {
+                    WriteDebug($"KILL LOG ERROR: {ex.Message}");
+                }
             }
 
             var validKills = new List<(KillFeedEntry kf, double meters, string weapon, string rarity, PlayerData killer, PlayerData victim)>();
